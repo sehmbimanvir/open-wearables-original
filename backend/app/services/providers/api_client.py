@@ -53,8 +53,27 @@ def _get_valid_token(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Token expired and no refresh token available for {provider_name}",
             )
-        token_response = oauth.refresh_access_token(db, user_id, connection.refresh_token)
-        return token_response.access_token
+        # Scope distributed lock per user/provider to avoid concurrent refresh race conditions.
+        from app.integrations.redis_client import get_redis_client
+
+        redis_client = get_redis_client()
+        lock_key = f"token_refresh_lock:{provider_name}:{user_id}"
+
+        # redis.lock context manager handles acquisition, auto-retry, and token-verified release safely.
+        with redis_client.lock(lock_key, timeout=30, sleep=0.2):
+            # Expire cached objects so SQLAlchemy fetches fresh data from DB.
+            # Without this, the identity map returns the stale connection loaded before lock.
+            db.expire_all()
+            connection = connection_repo.get_by_user_and_provider(db, user_id, provider_name)
+            if (
+                connection
+                and connection.token_expires_at
+                and connection.token_expires_at >= datetime.now(timezone.utc) + timedelta(minutes=5)
+            ):
+                return connection.access_token
+
+            token_response = oauth.refresh_access_token(db, user_id, connection.refresh_token)
+            return token_response.access_token
 
     return connection.access_token
 
