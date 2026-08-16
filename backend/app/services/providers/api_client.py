@@ -61,10 +61,10 @@ def _get_valid_token(
 
         # redis.lock context manager handles acquisition, auto-retry, and token-verified release safely.
         with redis_client.lock(lock_key, timeout=60, sleep=0.2):
-            # Expire cached objects so SQLAlchemy fetches fresh data from DB.
-            # Without this, the identity map returns the stale connection loaded before lock.
-            db.expire_all()
-            connection = connection_repo.get_by_user_and_provider(db, user_id, provider_name)
+            # Refresh only this connection object to pull fresh tokens without discarding unrelated session changes
+            if connection:
+                db.refresh(connection)
+
             if (
                 connection
                 and connection.token_expires_at
