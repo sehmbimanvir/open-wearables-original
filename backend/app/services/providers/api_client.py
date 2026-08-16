@@ -59,23 +59,27 @@ def _get_valid_token(
         redis_client = get_redis_client()
         lock_key = f"token_refresh_lock:{provider_name}:{user_id}"
 
-        # redis.lock context manager handles acquisition, auto-retry, and token-verified release safely.
         with redis_client.lock(lock_key, timeout=60, sleep=0.2):
-            # Refresh only this connection object to pull fresh tokens without discarding unrelated session changes
-            if connection:
-                db.refresh(connection)
+          # Fetch and refresh connection instance inside the lock
+          connection = connection_repo.get_by_user_and_provider(db, user_id, provider_name)
+          if not connection or not connection.access_token:
+              raise ValueError(f"No valid connection found for {provider_name}:{user_id}")
 
-            if (
-                connection
-                and connection.token_expires_at
-                and connection.token_expires_at >= datetime.now(timezone.utc) + timedelta(minutes=5)
-            ):
-                return connection.access_token
+          db.refresh(connection)
 
-            token_response = oauth.refresh_access_token(db, user_id, connection.refresh_token)
-            return token_response.access_token
+          # 1. If the token never expires, return it directly
+          # 2. If it expires in the future (> 5 min buffer), return existing token
+          now = datetime.now(timezone.utc)
+          if not connection.token_expires_at or connection.token_expires_at >= now + timedelta(minutes=5):
+              return connection.access_token
 
-    return connection.access_token
+          # Guard against missing refresh token before attempting OAuth refresh
+          if not connection.refresh_token:
+              raise ValueError(f"Missing refresh token for {provider_name}:{user_id}")
+
+          token_response = oauth.refresh_access_token(db, user_id, connection.refresh_token)
+          return token_response.access_token
+          return connection.access_token
 
 
 def make_authenticated_request(
