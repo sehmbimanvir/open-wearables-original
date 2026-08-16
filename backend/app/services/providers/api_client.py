@@ -13,6 +13,7 @@ from app.database import DbSession
 from app.repositories import UserConnectionRepository
 from app.services.providers.templates.base_oauth import BaseOAuthTemplate
 from app.utils.structured_logging import log_structured
+from app.integrations.redis_client import get_redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,6 @@ def _get_valid_token(
                 detail=f"Token expired and no refresh token available for {provider_name}",
             )
         # Scope distributed lock per user/provider to avoid concurrent refresh race conditions.
-        from app.integrations.redis_client import get_redis_client
 
         redis_client = get_redis_client()
         lock_key = f"token_refresh_lock:{provider_name}:{user_id}"
