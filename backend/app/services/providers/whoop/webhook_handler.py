@@ -243,7 +243,8 @@ class WhoopWebhookHandler(BaseWebhookHandler):
             case WhoopWebhookNotificationType.SLEEP_UPDATED:
                 count = self.data_247.load_single_sleep(db, user_id, resource_id)
             case WhoopWebhookNotificationType.RECOVERY_UPDATED:
-                count = self.data_247.load_single_recovery(db, user_id, resource_id)
+                sleep = self.data_247.get_sleep_record(db, user_id, resource_id)
+                count = self.data_247.load_single_recovery(db, user_id, sleep['cycle_id'])
             case _:
                 return {"status": "ignored", "reason": f"unhandled_event_type: {event_type}"}
 
